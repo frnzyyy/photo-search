@@ -24,6 +24,7 @@ import {
   showIndexingNotification,
 } from "../services/indexingService";
 import {
+  getAllPhotos,
   getIndexedCount,
   initDatabase,
   isIndexed,
@@ -130,6 +131,21 @@ export default function HomeScreen() {
     setResults(found);
     if (found.length === 0) setStatus(`No results for "${query}"`);
     else setStatus(`${found.length} result(s) for "${query}"`);
+  }
+
+  function showAllPhotos() {
+    setStatus("Loading all indexed photos...");
+
+    const allPhotos = getAllPhotos();
+
+    setResults(allPhotos);
+    setQuery("");
+
+    if (allPhotos.length === 0) {
+      setStatus("No indexed photos yet.");
+    } else {
+      setStatus(`Showing all ${allPhotos.length} indexed photo(s)`);
+    }
   }
 
   function getHoveredMenuOption(
@@ -330,6 +346,9 @@ export default function HomeScreen() {
         <TouchableOpacity style={styles.button} onPress={doSearch}>
           <Text style={styles.buttonText}>Search</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={styles.secondaryButton} onPress={showAllPhotos}>
+          <Text style={styles.secondaryButtonText}>Show All</Text>
+        </TouchableOpacity>
       </View>
 
       <Text style={styles.status}>{status}</Text>
@@ -357,6 +376,7 @@ export default function HomeScreen() {
         data={results}
         keyExtractor={(item) => item.id.toString()}
         numColumns={3}
+        scrollEnabled={!menuVisible}
         renderItem={({ item }) => (
           <Pressable
             style={styles.photoCard}
@@ -497,6 +517,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   buttonText: { color: "#fff", fontWeight: "500" },
+  secondaryButton: {
+    backgroundColor: "#333",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  secondaryButtonText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
+  },
   status: { fontSize: 13, color: "#888", marginBottom: 12 },
   indexButton: {
     borderWidth: 0.5,

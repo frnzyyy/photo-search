@@ -48,6 +48,14 @@ export function searchPhotos(query: string): Photo[] {
   );
 }
 
+export function getAllPhotos(): Photo[] {
+  return db.getAllSync<Photo>(
+    `SELECT * FROM photos
+     WHERE indexed = 1
+     ORDER BY id DESC`,
+  );
+}
+
 export function isIndexed(uri: string): boolean {
   const result = db.getFirstSync<{ id: number }>(
     `SELECT id FROM photos WHERE uri = ? AND indexed = 1`,
