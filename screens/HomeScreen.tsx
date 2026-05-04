@@ -1,4 +1,6 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import * as FileSystem from "expo-file-system/legacy";
+import * as IntentLauncher from "expo-intent-launcher";
 import * as MediaLibrary from "expo-media-library";
 import * as Sharing from "expo-sharing";
 import { useEffect, useRef, useState } from "react";
@@ -8,6 +10,7 @@ import {
   Animated,
   FlatList,
   Image,
+  Linking,
   Pressable,
   StyleSheet,
   Text,
@@ -30,7 +33,7 @@ import {
 } from "../services/database";
 import { getImageDescription } from "../services/vlm";
 import PhotoViewer from "../components/PhotoViewer";
-import * as Haptics from 'expo-haptics';
+import * as Haptics from "expo-haptics";
 
 export default function HomeScreen() {
   const [query, setQuery] = useState("");
@@ -270,7 +273,7 @@ export default function HomeScreen() {
     }
 
     if (finalOption === "gallery") {
-      alert("Open in Gallery will be added next.");
+      await openPhotoInGallery(photo);
       return;
     }
   }
@@ -282,6 +285,34 @@ export default function HomeScreen() {
       tension: 180,
       friction: 12,
     }).start();
+  }
+
+  async function openPhotoInGallery(photo: any) {
+    if (!photo?.uri) return;
+
+    try {
+      const safeFilename =
+        photo.filename?.replace(/[^a-zA-Z0-9._-]/g, "_") ||
+        `photo-${Date.now()}.jpg`;
+
+      const cachedUri = `${FileSystem.cacheDirectory}${safeFilename}`;
+
+      await FileSystem.copyAsync({
+        from: photo.uri,
+        to: cachedUri,
+      });
+
+      const contentUri = await FileSystem.getContentUriAsync(cachedUri);
+
+      await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+        data: contentUri,
+        type: "image/*",
+        flags: 1,
+      });
+    } catch (error) {
+      console.log("Open gallery error:", error);
+      alert("Unable to open this photo in gallery.");
+    }
   }
 
   return (
@@ -355,6 +386,7 @@ export default function HomeScreen() {
       />
       <PhotoViewer
         photo={selectedPhoto}
+        photos={results}
         onClose={() => setSelectedPhoto(null)}
       />
 
@@ -376,8 +408,10 @@ export default function HomeScreen() {
                 activeMenuOption === "gallery" && styles.floatingButtonActive,
               ]}
               onPress={() => {
+                if (!menuPhoto) return;
+
                 setMenuVisible(false);
-                alert("Open in Gallery will be added next.");
+                openPhotoInGallery(menuPhoto);
               }}
             >
               <MaterialCommunityIcons
