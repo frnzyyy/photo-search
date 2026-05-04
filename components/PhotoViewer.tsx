@@ -1,6 +1,7 @@
 import * as Sharing from "expo-sharing";
 import { useEffect, useState } from "react";
 import {
+  Animated,
   Dimensions,
   Image,
   Modal,
@@ -24,6 +25,8 @@ export default function PhotoViewer({ photo, photos, onClose }: Props) {
   const [sharing, setSharing] = useState(false);
   const [currentPhoto, setCurrentPhoto] = useState<Photo | null>(photo);
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
+  const [touchStartY, setTouchStartY] = useState<number | null>(null);
+  const slideAnim = useState(new Animated.Value(0))[0];
 
   useEffect(() => {
     setCurrentPhoto(photo);
@@ -67,8 +70,34 @@ export default function PhotoViewer({ photo, photos, onClose }: Props) {
     setCurrentPhoto(photos[currentIndex - 1]);
   }
 
+  function animateSwipe(direction: "next" | "previous", changePhoto: () => void) {
+    const exitX = direction === "next" ? -width : width;
+    const enterX = direction === "next" ? width : -width;
+
+    Animated.timing(slideAnim, {
+      toValue: exitX,
+      duration: 140,
+      useNativeDriver: true,
+    }).start(() => {
+      changePhoto();
+
+      slideAnim.setValue(enterX);
+
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 160,
+        useNativeDriver: true,
+      }).start();
+    });
+  }
+
   return (
-    <Modal visible={true} transparent={false} animationType="fade">
+    <Modal
+      visible={true}
+      transparent={false}
+      animationType="fade"
+      onRequestClose={onClose}
+    >
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
@@ -90,34 +119,50 @@ export default function PhotoViewer({ photo, photos, onClose }: Props) {
         </View>
 
         {/* Full screen photo */}
-        <ScrollView
-          contentContainerStyle={styles.imageContainer}
-          maximumZoomScale={4}
-          minimumZoomScale={1}
-          onTouchStart={(event) => {
-            setTouchStartX(event.nativeEvent.touches[0].pageX);
-          }}
-          onTouchEnd={(event) => {
-            if (touchStartX === null) return;
-
-            const touchEndX = event.nativeEvent.changedTouches[0].pageX;
-            const diffX = touchStartX - touchEndX;
-
-            if (diffX > 60) {
-              goToNextPhoto();
-            } else if (diffX < -60) {
-              goToPreviousPhoto();
-            }
-
-            setTouchStartX(null);
-          }}
+        <Animated.View
+          style={[
+            styles.animatedImageWrapper,
+            {
+              transform: [{ translateX: slideAnim }],
+            },
+          ]}
         >
-          <Image
-            source={{ uri: currentPhoto.uri }}
-            style={styles.image}
-            resizeMode="contain"
-          />
-        </ScrollView>
+          <ScrollView
+            contentContainerStyle={styles.imageContainer}
+            maximumZoomScale={4}
+            minimumZoomScale={1}
+            onTouchStart={(event) => {
+              setTouchStartX(event.nativeEvent.touches[0].pageX);
+              setTouchStartY(event.nativeEvent.touches[0].pageY);
+            }}
+            onTouchEnd={(event) => {
+              if (touchStartX === null) return;
+
+              const touchEndX = event.nativeEvent.changedTouches[0].pageX;
+              const touchEndY = event.nativeEvent.changedTouches[0].pageY;
+
+              const diffX = touchStartX - touchEndX;
+              const diffY = touchStartY !== null ? touchEndY - touchStartY : 0;
+
+              if (diffY > 90 && Math.abs(diffY) > Math.abs(diffX)) {
+                onClose();
+              } else if (diffX > 60) {
+                animateSwipe("next", goToNextPhoto);
+              } else if (diffX < -60) {
+                animateSwipe("previous", goToPreviousPhoto);
+              }
+
+              setTouchStartX(null);
+              setTouchStartY(null);
+            }}
+          >
+            <Image
+              source={{ uri: currentPhoto.uri }}
+              style={styles.image}
+              resizeMode="contain"
+            />
+          </ScrollView>
+        </Animated.View>
 
         {/* Description */}
         <View style={styles.footer}>
@@ -163,6 +208,9 @@ const styles = StyleSheet.create({
   },
   shareBtn: { backgroundColor: "#378ADD", borderColor: "#378ADD" },
   shareBtnText: { color: "#fff", fontSize: 14, fontWeight: "500" },
+  animatedImageWrapper: {
+    flex: 1,
+  },
   imageContainer: {
     flex: 1,
     justifyContent: "center",
