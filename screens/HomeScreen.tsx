@@ -11,6 +11,7 @@ import {
   FlatList,
   Image,
   Linking,
+  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -24,7 +25,11 @@ import {
   showIndexingNotification,
 } from "../services/indexingService";
 import {
+  addPhotoToCollection,
+  Collection,
+  createCollection,
   getAllPhotos,
+  getCollections,
   getIndexedCount,
   initDatabase,
   isIndexed,
@@ -48,11 +53,22 @@ export default function HomeScreen() {
   const [selectedPhotoUris, setSelectedPhotoUris] = useState<Set<string>>(
     new Set(),
   );
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [collectionModalVisible, setCollectionModalVisible] = useState(false);
+  const [newCollectionName, setNewCollectionName] = useState("");
+  const [collectionTargetPhoto, setCollectionTargetPhoto] =
+    useState<Photo | null>(null);
+
+  function loadCollections() {
+    const savedCollections = getCollections();
+    setCollections(savedCollections);
+  }
+
   const [menuVisible, setMenuVisible] = useState(false);
   const [menuPhoto, setMenuPhoto] = useState<any | null>(null);
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   const [activeMenuOption, setActiveMenuOption] = useState<
-    "gallery" | "share" | "view" | "select" | null
+    "gallery" | "share" | "view" | "select" | "collection" | null
   >(null);
   const [activeTouchPhotoUri, setActiveTouchPhotoUri] = useState<string | null>(
     null,
@@ -65,6 +81,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     initDatabase();
+    loadCollections();
     setIndexedCount(getIndexedCount());
   }, []);
 
@@ -155,7 +172,7 @@ export default function HomeScreen() {
   function getHoveredMenuOption(
     x: number,
     y: number,
-  ): "gallery" | "share" | "view" | "select" | null {
+  ): "gallery" | "share" | "view" | "select" | "collection" | null {
     const menuLeft = Math.max(20, menuPosition.x - 80);
     const menuTop = Math.max(100, menuPosition.y - 120);
 
@@ -179,6 +196,11 @@ export default function HomeScreen() {
         option: "select" as const,
         left: menuLeft + 45,
         top: menuTop + 120,
+      },
+      {
+        option: "collection" as const,
+        left: menuLeft + 110,
+        top: menuTop + 145,
       },
     ];
 
@@ -307,6 +329,11 @@ export default function HomeScreen() {
       setSelectedPhotoUris(new Set([photo.uri]));
       return;
     }
+
+    if (finalOption === "collection") {
+      openCollectionModal(photo);
+      return;
+    }
   }
 
   function animatePhotoScale(toValue: number) {
@@ -394,6 +421,61 @@ export default function HomeScreen() {
     alert(
       "Bulk share needs a native Android share module. For now, select only one photo to share.",
     );
+  }
+
+  function openCollectionModal(photo: Photo) {
+    setCollectionTargetPhoto(photo);
+    loadCollections();
+    setCollectionModalVisible(true);
+  }
+
+  function handleCreateCollectionAndSave() {
+    if (!collectionTargetPhoto) return;
+
+    try {
+      createCollection(newCollectionName);
+      loadCollections();
+
+      const updatedCollections = getCollections();
+      const createdCollection = updatedCollections.find(
+        (collection) =>
+          collection.name.toLowerCase() ===
+          newCollectionName.trim().toLowerCase(),
+      );
+
+      if (!createdCollection) {
+        alert("Collection was created, but could not be found.");
+        return;
+      }
+
+      addPhotoToCollection(collectionTargetPhoto.id, createdCollection.id);
+
+      setNewCollectionName("");
+      setCollectionModalVisible(false);
+      setCollectionTargetPhoto(null);
+
+      alert(`Saved to "${createdCollection.name}"`);
+    } catch (error) {
+      console.log("Create collection error:", error);
+      alert("Unable to create collection.");
+    }
+  }
+
+  function handleSaveToExistingCollection(collection: Collection) {
+    if (!collectionTargetPhoto) return;
+
+    try {
+      addPhotoToCollection(collectionTargetPhoto.id, collection.id);
+
+      setCollectionModalVisible(false);
+      setCollectionTargetPhoto(null);
+      setNewCollectionName("");
+
+      alert(`Saved to "${collection.name}"`);
+    } catch (error) {
+      console.log("Save to collection error:", error);
+      alert("Unable to save to collection.");
+    }
   }
 
   return (
@@ -595,6 +677,23 @@ export default function HomeScreen() {
               <Feather name="check-square" size={26} color="#fff" />
             </Pressable>
 
+            <Pressable
+              style={[
+                styles.floatingButton,
+                { left: 110, top: 145 },
+                activeMenuOption === "collection" &&
+                  styles.floatingButtonActive,
+              ]}
+              onPress={() => {
+                if (!menuPhoto) return;
+
+                setMenuVisible(false);
+                openCollectionModal(menuPhoto);
+              }}
+            >
+              <Feather name="folder-plus" size={26} color="#fff" />
+            </Pressable>
+
             <View style={styles.floatingLabel}>
               <Text style={styles.floatingLabelText}>
                 {activeMenuOption === "gallery"
@@ -605,12 +704,68 @@ export default function HomeScreen() {
                       ? "View Fullscreen"
                       : activeMenuOption === "select"
                         ? "Select"
-                        : "Photo options"}
+                        : activeMenuOption === "collection"
+                          ? "Save to Collection"
+                          : "Photo options"}
               </Text>
             </View>
           </View>
         </View>
       )}
+
+      <Modal
+        visible={collectionModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCollectionModalVisible(false)}
+      >
+        <View style={styles.collectionModalOverlay}>
+          <View style={styles.collectionModalBox}>
+            <Text style={styles.collectionModalTitle}>Save to Collection</Text>
+
+            <TextInput
+              style={styles.collectionInput}
+              placeholder="New collection name"
+              value={newCollectionName}
+              onChangeText={setNewCollectionName}
+            />
+
+            <TouchableOpacity
+              style={styles.collectionCreateButton}
+              onPress={handleCreateCollectionAndSave}
+            >
+              <Text style={styles.collectionCreateText}>Create Collection</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.collectionSectionTitle}>
+              Existing Collections
+            </Text>
+
+            {collections.length === 0 ? (
+              <Text style={styles.emptyCollectionText}>No collections yet.</Text>
+            ) : (
+              collections.map((collection) => (
+                <TouchableOpacity
+                  key={collection.id}
+                  style={styles.collectionItem}
+                  onPress={() => handleSaveToExistingCollection(collection)}
+                >
+                  <Text style={styles.collectionItemText}>
+                    {collection.name}
+                  </Text>
+                </TouchableOpacity>
+              ))
+            )}
+
+            <TouchableOpacity
+              style={styles.collectionCancelButton}
+              onPress={() => setCollectionModalVisible(false)}
+            >
+              <Text style={styles.collectionCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -726,8 +881,8 @@ const styles = StyleSheet.create({
   },
   floatingMenu: {
     position: "absolute",
-    width: 180,
-    height: 230,
+    width: 190,
+    height: 285,
   },
   floatingButton: {
     position: "absolute",
@@ -749,7 +904,7 @@ const styles = StyleSheet.create({
   floatingLabel: {
     position: "absolute",
     left: 10,
-    top: 185,
+    top: 230,
     backgroundColor: "rgba(30,30,30,0.9)",
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -759,5 +914,76 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 13,
     fontWeight: "600",
+  },
+  collectionModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  collectionModalBox: {
+    width: "100%",
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    padding: 18,
+  },
+  collectionModalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111",
+    marginBottom: 14,
+  },
+  collectionInput: {
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    marginBottom: 10,
+  },
+  collectionCreateButton: {
+    backgroundColor: "#378ADD",
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  collectionCreateText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  collectionSectionTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#555",
+    marginBottom: 8,
+  },
+  emptyCollectionText: {
+    color: "#888",
+    fontSize: 13,
+    marginBottom: 12,
+  },
+  collectionItem: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  collectionItemText: {
+    fontSize: 15,
+    color: "#111",
+    fontWeight: "600",
+  },
+  collectionCancelButton: {
+    marginTop: 14,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  collectionCancelText: {
+    color: "#d11a2a",
+    fontSize: 14,
+    fontWeight: "700",
   },
 });
