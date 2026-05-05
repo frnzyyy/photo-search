@@ -8,11 +8,12 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Dimensions,
   FlatList,
   Image,
-  Linking,
   Modal,
   Pressable,
+  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
@@ -40,6 +41,40 @@ import {
 import { getImageDescription } from "../services/vlm";
 import PhotoViewer from "../components/PhotoViewer";
 import * as Haptics from "expo-haptics";
+
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
+const FLOATING_BUTTON_SIZE = 54;
+const FLOATING_MENU_WIDTH = 240;
+const FLOATING_MENU_HEIGHT = 220;
+
+const FLOATING_MENU_BUTTONS = [
+  {
+    option: "gallery" as const,
+    left: 8,
+    top: 104,
+  },
+  {
+    option: "share" as const,
+    left: 40,
+    top: 58,
+  },
+  {
+    option: "view" as const,
+    left: 93,
+    top: 34,
+  },
+  {
+    option: "select" as const,
+    left: 146,
+    top: 58,
+  },
+  {
+    option: "collection" as const,
+    left: 178,
+    top: 104,
+  },
+];
 
 export default function HomeScreen() {
   const [query, setQuery] = useState("");
@@ -77,11 +112,22 @@ export default function HomeScreen() {
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const menuGestureActiveRef = useRef(false);
   const touchStartRef = useRef({ x: 0, y: 0 });
+  const holdPreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const photoScaleAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     initDatabase();
     loadCollections();
+
+    const allPhotos = getAllPhotos();
+    setResults(allPhotos);
+
+    if (allPhotos.length > 0) {
+      setStatus(`Showing all ${allPhotos.length} indexed photo(s)`);
+    }
+
     setIndexedCount(getIndexedCount());
   }, []);
 
@@ -173,46 +219,28 @@ export default function HomeScreen() {
     x: number,
     y: number,
   ): "gallery" | "share" | "view" | "select" | "collection" | null {
-    const menuLeft = Math.max(20, menuPosition.x - 80);
-    const menuTop = Math.max(100, menuPosition.y - 120);
+    const menuLeft = Math.min(
+      Math.max(12, menuPosition.x - FLOATING_MENU_WIDTH / 2),
+      SCREEN_WIDTH - FLOATING_MENU_WIDTH - 12,
+    );
 
-    const buttons = [
-      {
-        option: "gallery" as const,
-        left: menuLeft + 0,
-        top: menuTop + 55,
-      },
-      {
-        option: "share" as const,
-        left: menuLeft + 62,
-        top: menuTop + 18,
-      },
-      {
-        option: "view" as const,
-        left: menuLeft + 105,
-        top: menuTop + 82,
-      },
-      {
-        option: "select" as const,
-        left: menuLeft + 45,
-        top: menuTop + 120,
-      },
-      {
-        option: "collection" as const,
-        left: menuLeft + 110,
-        top: menuTop + 145,
-      },
-    ];
+    const menuTop = Math.max(80, menuPosition.y - FLOATING_MENU_HEIGHT + 20);
+
+    const buttons = FLOATING_MENU_BUTTONS.map((button) => ({
+      option: button.option,
+      left: menuLeft + button.left,
+      top: menuTop + button.top,
+    }));
 
     for (const button of buttons) {
-      const centerX = button.left + 27;
-      const centerY = button.top + 27;
+      const centerX = button.left + 28;
+      const centerY = button.top + 28;
 
       const distance = Math.sqrt(
         Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2),
       );
 
-      if (distance <= 34) {
+      if (distance <= 36) {
         return button.option;
       }
     }
@@ -224,13 +252,19 @@ export default function HomeScreen() {
     const touch = event.nativeEvent.touches?.[0];
     if (!touch) return;
 
-    setActiveTouchPhotoUri(photo.uri);
-    animatePhotoScale(0.96);
-
     touchStartRef.current = {
       x: touch.pageX,
       y: touch.pageY,
     };
+
+    if (holdPreviewTimerRef.current) {
+      clearTimeout(holdPreviewTimerRef.current);
+    }
+
+    holdPreviewTimerRef.current = setTimeout(() => {
+      setActiveTouchPhotoUri(photo.uri);
+      animatePhotoScale(0.96);
+    }, 180);
 
     menuGestureActiveRef.current = false;
 
@@ -251,7 +285,7 @@ export default function HomeScreen() {
       setActiveMenuOption(null);
       setMenuVisible(true);
       animatePhotoScale(1.04);
-    }, 350);
+    }, 650);
   }
 
   function handlePhotoTouchMove(event: any) {
@@ -263,11 +297,20 @@ export default function HomeScreen() {
         Math.pow(touch.pageY - touchStartRef.current.y, 2),
     );
 
-    if (!menuGestureActiveRef.current && moveDistance > 10) {
+    if (!menuGestureActiveRef.current && moveDistance > 4) {
+      if (holdPreviewTimerRef.current) {
+        clearTimeout(holdPreviewTimerRef.current);
+        holdPreviewTimerRef.current = null;
+      }
+
       if (longPressTimerRef.current) {
         clearTimeout(longPressTimerRef.current);
         longPressTimerRef.current = null;
       }
+
+      setActiveTouchPhotoUri(null);
+      animatePhotoScale(1);
+
       return;
     }
 
@@ -277,10 +320,27 @@ export default function HomeScreen() {
     }
   }
 
+  function cancelPendingLongPress() {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+
+    if (!menuGestureActiveRef.current) {
+      setActiveTouchPhotoUri(null);
+      animatePhotoScale(1);
+    }
+  }
+
   async function handlePhotoTouchEnd(photo: any, event: any) {
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
+    }
+
+    if (holdPreviewTimerRef.current) {
+      clearTimeout(holdPreviewTimerRef.current);
+      holdPreviewTimerRef.current = null;
     }
 
     animatePhotoScale(1);
@@ -478,23 +538,46 @@ export default function HomeScreen() {
     }
   }
 
+  function closeFloatingMenu() {
+    if (holdPreviewTimerRef.current) {
+      clearTimeout(holdPreviewTimerRef.current);
+      holdPreviewTimerRef.current = null;
+    }
+
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+
+    menuGestureActiveRef.current = false;
+
+    setMenuVisible(false);
+    setActiveMenuOption(null);
+    setMenuPhoto(null);
+    setActiveTouchPhotoUri(null);
+    animatePhotoScale(1);
+  }
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>📷 Photo Search</Text>
+    <SafeAreaView style={styles.container}>
+      <View style={styles.headerBlock}>
+        <View>
+          <Text style={styles.title}>Photo Search</Text>
+          <Text style={styles.subtitle}>AI-powered gallery search</Text>
+        </View>
+      </View>
 
       <View style={styles.searchRow}>
         <TextInput
           style={styles.input}
           placeholder="Search: horse, receipt, sunset..."
+          placeholderTextColor="#62625B"
           value={query}
           onChangeText={setQuery}
           onSubmitEditing={doSearch}
         />
         <TouchableOpacity style={styles.button} onPress={doSearch}>
-          <Text style={styles.buttonText}>Search</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.secondaryButton} onPress={showAllPhotos}>
-          <Text style={styles.secondaryButtonText}>Show All</Text>
+          <Feather name="search" size={22} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
 
@@ -542,10 +625,28 @@ export default function HomeScreen() {
       )}
 
       <FlatList
+        key="home-photo-grid-2"
         data={results}
         keyExtractor={(item) => item.id.toString()}
-        numColumns={3}
+        numColumns={2}
         scrollEnabled={!menuVisible}
+        onScrollBeginDrag={closeFloatingMenu}
+        initialNumToRender={18}
+        maxToRenderPerBatch={18}
+        windowSize={7}
+        removeClippedSubviews={true}
+        updateCellsBatchingPeriod={50}
+        contentContainerStyle={styles.photoGridContent}
+        columnWrapperStyle={styles.photoGridRow}
+        showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>No photos yet</Text>
+            <Text style={styles.emptyBody}>
+              Search or show all indexed photos to start browsing.
+            </Text>
+          </View>
+        }
         renderItem={({ item }) => (
           <Pressable
             style={styles.photoCard}
@@ -565,6 +666,7 @@ export default function HomeScreen() {
           >
             <Animated.View
               style={[
+                styles.photoImageWrapper,
                 activeTouchPhotoUri === item.uri && {
                   transform: [{ scale: photoScaleAnim }],
                   zIndex: 1000,
@@ -591,20 +693,29 @@ export default function HomeScreen() {
       />
 
       {menuVisible && (
-        <View style={styles.floatingMenuOverlay}>
+        <Pressable style={styles.floatingMenuOverlay} onPress={closeFloatingMenu}>
           <View
             style={[
               styles.floatingMenu,
               {
-                left: Math.max(20, menuPosition.x - 80),
-                top: Math.max(100, menuPosition.y - 120),
+                left: Math.min(
+                  Math.max(12, menuPosition.x - FLOATING_MENU_WIDTH / 2),
+                  SCREEN_WIDTH - FLOATING_MENU_WIDTH - 12,
+                ),
+                top: Math.max(
+                  80,
+                  menuPosition.y - FLOATING_MENU_HEIGHT + 20,
+                ),
               },
             ]}
           >
             <Pressable
               style={[
                 styles.floatingButton,
-                { left: 0, top: 55 },
+                {
+                  left: FLOATING_MENU_BUTTONS[0].left,
+                  top: FLOATING_MENU_BUTTONS[0].top,
+                },
                 activeMenuOption === "gallery" && styles.floatingButtonActive,
               ]}
               onPress={() => {
@@ -624,7 +735,10 @@ export default function HomeScreen() {
             <Pressable
               style={[
                 styles.floatingButton,
-                { left: 62, top: 18 },
+                {
+                  left: FLOATING_MENU_BUTTONS[1].left,
+                  top: FLOATING_MENU_BUTTONS[1].top,
+                },
                 activeMenuOption === "share" && styles.floatingButtonActive,
               ]}
               onPress={async () => {
@@ -647,7 +761,10 @@ export default function HomeScreen() {
             <Pressable
               style={[
                 styles.floatingButton,
-                { left: 105, top: 82 },
+                {
+                  left: FLOATING_MENU_BUTTONS[2].left,
+                  top: FLOATING_MENU_BUTTONS[2].top,
+                },
                 activeMenuOption === "view" && styles.floatingButtonActive,
               ]}
               onPress={() => {
@@ -663,7 +780,10 @@ export default function HomeScreen() {
             <Pressable
               style={[
                 styles.floatingButton,
-                { left: 45, top: 120 },
+                {
+                  left: FLOATING_MENU_BUTTONS[3].left,
+                  top: FLOATING_MENU_BUTTONS[3].top,
+                },
                 activeMenuOption === "select" && styles.floatingButtonActive,
               ]}
               onPress={() => {
@@ -680,7 +800,10 @@ export default function HomeScreen() {
             <Pressable
               style={[
                 styles.floatingButton,
-                { left: 110, top: 145 },
+                {
+                  left: FLOATING_MENU_BUTTONS[4].left,
+                  top: FLOATING_MENU_BUTTONS[4].top,
+                },
                 activeMenuOption === "collection" &&
                   styles.floatingButtonActive,
               ]}
@@ -710,7 +833,7 @@ export default function HomeScreen() {
               </Text>
             </View>
           </View>
-        </View>
+        </Pressable>
       )}
 
       <Modal
@@ -726,6 +849,7 @@ export default function HomeScreen() {
             <TextInput
               style={styles.collectionInput}
               placeholder="New collection name"
+              placeholderTextColor="#62625B"
               value={newCollectionName}
               onChangeText={setNewCollectionName}
             />
@@ -766,109 +890,232 @@ export default function HomeScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, paddingTop: 50, backgroundColor: "#fff" },
-  title: { fontSize: 22, fontWeight: "500", marginBottom: 16 },
-  searchRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
-  input: {
+  container: {
     flex: 1,
-    borderWidth: 0.5,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 10,
-    fontSize: 15,
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    backgroundColor: "#FFFFFF",
   },
-  button: {
-    backgroundColor: "#378ADD",
-    borderRadius: 8,
-    padding: 10,
-    justifyContent: "center",
+  headerBlock: {
+    marginBottom: 18,
+    paddingTop: 4,
   },
-  buttonText: { color: "#fff", fontWeight: "500" },
-  secondaryButton: {
-    backgroundColor: "#333",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 8,
-    marginLeft: 8,
+  title: {
+    fontSize: 26,
+    lineHeight: 32,
+    fontWeight: "800",
+    color: "#211922",
   },
-  secondaryButtonText: {
-    color: "#fff",
+  subtitle: {
+    marginTop: 2,
     fontSize: 13,
-    fontWeight: "600",
+    lineHeight: 18,
+    color: "#62625B",
+    fontWeight: "500",
   },
-  status: { fontSize: 13, color: "#888", marginBottom: 12 },
-  indexButton: {
-    borderWidth: 0.5,
-    borderColor: "#378ADD",
-    borderRadius: 8,
-    padding: 12,
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  indexButtonText: { color: "#378ADD", fontWeight: "500" },
-  indexingRow: {
+  searchRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    marginBottom: 10,
+  },
+  input: {
+    flex: 1,
+    height: 48,
+    borderWidth: 1,
+    borderColor: "transparent",
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    backgroundColor: "#EFEFEF",
+    color: "#000000",
+    fontSize: 16,
+    lineHeight: 22,
+  },
+  button: {
+    width: 52,
+    height: 52,
+    backgroundColor: "#E60023",
+    borderRadius: 26,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  buttonText: {
+    color: "#fff",
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  secondaryButton: {
+    minWidth: 86,
+    height: 48,
+    backgroundColor: "#E5E5E0",
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  secondaryButtonText: {
+    color: "#211922",
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  status: {
+    alignSelf: "flex-start",
+    backgroundColor: "#F6F6F3",
+    color: "#62625B",
+    fontSize: 12,
+    lineHeight: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    marginBottom: 12,
+  },
+  indexButton: {
+    minHeight: 44,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#E60023",
+  },
+  indexButtonText: {
+    color: "#E60023",
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  indexingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 48,
+    backgroundColor: "#F6F6F3",
+    borderRadius: 16,
+    paddingHorizontal: 14,
     marginBottom: 16,
   },
-  indexingText: { fontSize: 13, color: "#888" },
+  indexingText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: "#62625B",
+    fontWeight: "600",
+  },
   selectionToolbar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#111",
+    backgroundColor: "#211922",
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    marginHorizontal: 12,
-    marginBottom: 10,
+    paddingVertical: 8,
+    borderRadius: 16,
+    marginBottom: 12,
+    minHeight: 56,
   },
   selectionText: {
-    color: "#fff",
+    color: "#FFFFFF",
     fontSize: 14,
+    lineHeight: 18,
     fontWeight: "600",
   },
   selectionButton: {
-    backgroundColor: "#378ADD",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
+    backgroundColor: "#E60023",
+    minHeight: 48,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
   },
   selectionButtonText: {
-    color: "#fff",
-    fontSize: 13,
+    color: "#FFFFFF",
+    fontSize: 14,
+    lineHeight: 18,
     fontWeight: "700",
   },
   selectionCancelButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    minHeight: 48,
+    paddingHorizontal: 14,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 16,
   },
   selectionCancelText: {
-    color: "#aaa",
-    fontSize: 13,
-    fontWeight: "600",
+    color: "#E5E5E0",
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "700",
   },
-  photoCard: { flex: 1 / 3, padding: 2 },
-  photo: { width: "100%", aspectRatio: 1, borderRadius: 6 },
-  photoDesc: { fontSize: 9, color: "#888", marginTop: 2 },
+  photoGridContent: {
+    paddingBottom: 28,
+  },
+  photoGridRow: {
+    gap: 10,
+  },
+  photoCard: {
+    flex: 1,
+    marginBottom: 12,
+  },
+  photoImageWrapper: {
+    position: "relative",
+    borderRadius: 12,
+    overflow: "hidden",
+    backgroundColor: "#EFEFEF",
+    borderWidth: 1,
+    borderColor: "#E5E5E0",
+  },
+  photo: {
+    width: "100%",
+    aspectRatio: 0.82,
+    borderRadius: 12,
+    backgroundColor: "#EFEFEF",
+  },
+  photoDesc: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#62625B",
+    marginTop: 6,
+    paddingHorizontal: 2,
+  },
   selectedOverlay: {
     position: "absolute",
-    top: 6,
-    right: 6,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(55, 138, 221, 0.95)",
+    top: 8,
+    right: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#E60023",
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 2,
-    borderColor: "#fff",
+    borderColor: "#FFFFFF",
+  },
+  emptyState: {
+    backgroundColor: "#F6F6F3",
+    borderRadius: 16,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: "#E5E5E0",
+    marginTop: 12,
+  },
+  emptyTitle: {
+    fontSize: 22,
+    lineHeight: 30,
+    fontWeight: "700",
+    color: "#211922",
+    marginBottom: 6,
+  },
+  emptyBody: {
+    fontSize: 14,
+    lineHeight: 18,
+    color: "#62625B",
   },
   floatingMenuOverlay: {
     position: "absolute",
@@ -876,7 +1123,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.55)",
+    backgroundColor: "rgba(0,0,0,0.52)",
     zIndex: 999,
   },
   floatingMenu: {
@@ -886,104 +1133,126 @@ const styles = StyleSheet.create({
   },
   floatingButton: {
     position: "absolute",
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: "rgba(55,55,48,0.95)",
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "rgba(33,25,34,0.96)",
     justifyContent: "center",
     alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 6,
   },
   floatingButtonActive: {
     transform: [{ scale: 1.18 }],
-    backgroundColor: "rgba(90,90,80,1)",
-  },
-  floatingIcon: {
-    fontSize: 30,
-    color: "#fff",
+    backgroundColor: "#E60023",
   },
   floatingLabel: {
     position: "absolute",
-    left: 10,
-    top: 230,
-    backgroundColor: "rgba(30,30,30,0.9)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
+    left: 55,
+    top: 165,
+    backgroundColor: "rgba(33,25,34,0.94)",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
   },
   floatingLabelText: {
-    color: "#fff",
+    color: "#FFFFFF",
     fontSize: 13,
-    fontWeight: "600",
+    lineHeight: 18,
+    fontWeight: "700",
   },
   collectionModalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.65)",
+    backgroundColor: "rgba(0,0,0,0.58)",
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
   },
   collectionModalBox: {
     width: "100%",
-    backgroundColor: "#fff",
-    borderRadius: 18,
-    padding: 18,
+    maxHeight: "86%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 8,
   },
   collectionModalTitle: {
-    fontSize: 18,
+    fontSize: 22,
+    lineHeight: 30,
     fontWeight: "700",
-    color: "#111",
-    marginBottom: 14,
+    color: "#211922",
+    marginBottom: 16,
   },
   collectionInput: {
+    height: 48,
     borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    marginBottom: 10,
+    borderColor: "#919190",
+    borderRadius: 16,
+    paddingHorizontal: 15,
+    color: "#000000",
+    fontSize: 16,
+    lineHeight: 22,
+    marginBottom: 12,
   },
   collectionCreateButton: {
-    backgroundColor: "#378ADD",
-    paddingVertical: 12,
-    borderRadius: 10,
+    minHeight: 48,
+    backgroundColor: "#E60023",
+    borderRadius: 16,
     alignItems: "center",
+    justifyContent: "center",
     marginBottom: 16,
   },
   collectionCreateText: {
-    color: "#fff",
+    color: "#FFFFFF",
     fontWeight: "700",
     fontSize: 14,
+    lineHeight: 18,
   },
   collectionSectionTitle: {
-    fontSize: 13,
+    fontSize: 12,
+    lineHeight: 18,
     fontWeight: "700",
-    color: "#555",
+    color: "#211922",
     marginBottom: 8,
   },
   emptyCollectionText: {
-    color: "#888",
-    fontSize: 13,
+    color: "#62625B",
+    fontSize: 14,
+    lineHeight: 18,
     marginBottom: 12,
   },
   collectionItem: {
+    minHeight: 48,
+    justifyContent: "center",
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+    borderBottomColor: "#E5E5E0",
   },
   collectionItemText: {
-    fontSize: 15,
-    color: "#111",
-    fontWeight: "600",
+    fontSize: 14,
+    lineHeight: 18,
+    color: "#211922",
+    fontWeight: "700",
   },
   collectionCancelButton: {
-    marginTop: 14,
-    paddingVertical: 12,
+    marginTop: 12,
+    minHeight: 48,
     alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 16,
+    backgroundColor: "#E5E5E0",
   },
   collectionCancelText: {
-    color: "#d11a2a",
+    color: "#211922",
     fontSize: 14,
+    lineHeight: 18,
     fontWeight: "700",
   },
 });

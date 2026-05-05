@@ -84,9 +84,7 @@ export default function CollectionsScreen() {
           <Text style={styles.collectionName} numberOfLines={1}>
             {item.name}
           </Text>
-          <Text style={styles.collectionMeta}>
-            {photoLabel} - Created {item.created_at}
-          </Text>
+          <Text style={styles.collectionMeta}>{photoLabel}</Text>
         </View>
       </TouchableOpacity>
     );
@@ -170,6 +168,8 @@ export default function CollectionsScreen() {
         <FlatList
           data={collections}
           keyExtractor={(item) => item.id.toString()}
+          numColumns={2}
+          columnWrapperStyle={styles.collectionGridRow}
           contentContainerStyle={styles.collectionList}
           showsVerticalScrollIndicator={false}
           renderItem={renderCollectionCard}
@@ -210,12 +210,16 @@ const styles = StyleSheet.create({
   collectionList: {
     paddingBottom: 24,
   },
+  collectionGridRow: {
+    gap: 12,
+  },
   collectionCard: {
+    flex: 1,
     backgroundColor: "#FFFFFF",
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: "#E5E5E0",
-    marginBottom: 16,
+    marginBottom: 14,
     overflow: "hidden",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
@@ -224,9 +228,9 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   collectionPreview: {
-    height: 148,
+    height: 118,
     flexDirection: "row",
-    gap: 4,
+    gap: 3,
     backgroundColor: "#EFEFEF",
     overflow: "hidden",
   },
@@ -245,8 +249,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#EFEFEF",
   },
   previewImageStack: {
-    width: 92,
-    gap: 4,
+    width: 56,
+    gap: 3,
   },
   previewImageSmall: {
     flex: 1,
