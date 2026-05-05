@@ -44,11 +44,15 @@ export default function HomeScreen() {
   const [totalCount, setTotalCount] = useState(0);
   const [status, setStatus] = useState("Ready!");
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedPhotoUris, setSelectedPhotoUris] = useState<Set<string>>(
+    new Set(),
+  );
   const [menuVisible, setMenuVisible] = useState(false);
   const [menuPhoto, setMenuPhoto] = useState<any | null>(null);
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   const [activeMenuOption, setActiveMenuOption] = useState<
-    "gallery" | "share" | "view" | null
+    "gallery" | "share" | "view" | "select" | null
   >(null);
   const [activeTouchPhotoUri, setActiveTouchPhotoUri] = useState<string | null>(
     null,
@@ -151,7 +155,7 @@ export default function HomeScreen() {
   function getHoveredMenuOption(
     x: number,
     y: number,
-  ): "gallery" | "share" | "view" | null {
+  ): "gallery" | "share" | "view" | "select" | null {
     const menuLeft = Math.max(20, menuPosition.x - 80);
     const menuTop = Math.max(100, menuPosition.y - 120);
 
@@ -170,6 +174,11 @@ export default function HomeScreen() {
         option: "view" as const,
         left: menuLeft + 105,
         top: menuTop + 82,
+      },
+      {
+        option: "select" as const,
+        left: menuLeft + 45,
+        top: menuTop + 120,
       },
     ];
 
@@ -292,6 +301,12 @@ export default function HomeScreen() {
       await openPhotoInGallery(photo);
       return;
     }
+
+    if (finalOption === "select") {
+      setSelectionMode(true);
+      setSelectedPhotoUris(new Set([photo.uri]));
+      return;
+    }
   }
 
   function animatePhotoScale(toValue: number) {
@@ -329,6 +344,56 @@ export default function HomeScreen() {
       console.log("Open gallery error:", error);
       alert("Unable to open this photo in gallery.");
     }
+  }
+
+  function togglePhotoSelection(photo: Photo) {
+    setSelectedPhotoUris((previous) => {
+      const next = new Set(previous);
+
+      if (next.has(photo.uri)) {
+        next.delete(photo.uri);
+      } else {
+        next.add(photo.uri);
+      }
+
+      return next;
+    });
+  }
+
+  function exitSelectionMode() {
+    setSelectionMode(false);
+    setSelectedPhotoUris(new Set());
+  }
+
+  async function handleBulkShare() {
+    const selectedPhotos = results.filter((photo) =>
+      selectedPhotoUris.has(photo.uri),
+    );
+
+    if (selectedPhotos.length === 0) {
+      alert("No photos selected.");
+      return;
+    }
+
+    if (selectedPhotos.length === 1) {
+      try {
+        await Sharing.shareAsync(selectedPhotos[0].uri, {
+          mimeType: "image/jpeg",
+          dialogTitle: "Share Photo",
+        });
+
+        exitSelectionMode();
+      } catch (error) {
+        console.log("Single share error:", error);
+        alert("Unable to share photo.");
+      }
+
+      return;
+    }
+
+    alert(
+      "Bulk share needs a native Android share module. For now, select only one photo to share.",
+    );
   }
 
   return (
@@ -372,6 +437,28 @@ export default function HomeScreen() {
         </View>
       )}
 
+      {selectionMode && (
+        <View style={styles.selectionToolbar}>
+          <Text style={styles.selectionText}>
+            {selectedPhotoUris.size} selected
+          </Text>
+
+          <TouchableOpacity
+            style={styles.selectionButton}
+            onPress={handleBulkShare}
+          >
+            <Text style={styles.selectionButtonText}>Share</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.selectionCancelButton}
+            onPress={exitSelectionMode}
+          >
+            <Text style={styles.selectionCancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <FlatList
         data={results}
         keyExtractor={(item) => item.id.toString()}
@@ -382,6 +469,12 @@ export default function HomeScreen() {
             style={styles.photoCard}
             onPress={() => {
               if (menuVisible) return;
+
+              if (selectionMode) {
+                togglePhotoSelection(item);
+                return;
+              }
+
               setSelectedPhoto(item);
             }}
             onTouchStart={(event) => handlePhotoTouchStart(item, event)}
@@ -397,6 +490,11 @@ export default function HomeScreen() {
               ]}
             >
               <Image source={{ uri: item.uri }} style={styles.photo} />
+              {selectedPhotoUris.has(item.uri) && (
+                <View style={styles.selectedOverlay}>
+                  <Feather name="check" size={26} color="#fff" />
+                </View>
+              )}
             </Animated.View>
             <Text style={styles.photoDesc} numberOfLines={2}>
               {item.description}
@@ -480,6 +578,23 @@ export default function HomeScreen() {
               <Feather name="zoom-in" size={26} color="#fff" />
             </Pressable>
 
+            <Pressable
+              style={[
+                styles.floatingButton,
+                { left: 45, top: 120 },
+                activeMenuOption === "select" && styles.floatingButtonActive,
+              ]}
+              onPress={() => {
+                if (!menuPhoto) return;
+
+                setMenuVisible(false);
+                setSelectionMode(true);
+                setSelectedPhotoUris(new Set([menuPhoto.uri]));
+              }}
+            >
+              <Feather name="check-square" size={26} color="#fff" />
+            </Pressable>
+
             <View style={styles.floatingLabel}>
               <Text style={styles.floatingLabelText}>
                 {activeMenuOption === "gallery"
@@ -488,7 +603,9 @@ export default function HomeScreen() {
                     ? "Share"
                     : activeMenuOption === "view"
                       ? "View Fullscreen"
-                      : "Photo options"}
+                      : activeMenuOption === "select"
+                        ? "Select"
+                        : "Photo options"}
               </Text>
             </View>
           </View>
@@ -546,9 +663,58 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   indexingText: { fontSize: 13, color: "#888" },
+  selectionToolbar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#111",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginHorizontal: 12,
+    marginBottom: 10,
+  },
+  selectionText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  selectionButton: {
+    backgroundColor: "#378ADD",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  selectionButtonText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  selectionCancelButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  selectionCancelText: {
+    color: "#aaa",
+    fontSize: 13,
+    fontWeight: "600",
+  },
   photoCard: { flex: 1 / 3, padding: 2 },
   photo: { width: "100%", aspectRatio: 1, borderRadius: 6 },
   photoDesc: { fontSize: 9, color: "#888", marginTop: 2 },
+  selectedOverlay: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(55, 138, 221, 0.95)",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
   floatingMenuOverlay: {
     position: "absolute",
     top: 0,
@@ -561,7 +727,7 @@ const styles = StyleSheet.create({
   floatingMenu: {
     position: "absolute",
     width: 180,
-    height: 180,
+    height: 230,
   },
   floatingButton: {
     position: "absolute",
@@ -583,7 +749,7 @@ const styles = StyleSheet.create({
   floatingLabel: {
     position: "absolute",
     left: 10,
-    top: 140,
+    top: 185,
     backgroundColor: "rgba(30,30,30,0.9)",
     paddingHorizontal: 12,
     paddingVertical: 6,
