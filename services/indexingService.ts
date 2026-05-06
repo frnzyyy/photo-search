@@ -34,7 +34,7 @@ export async function showIndexingNotification(
     trigger: null,
   });
 }
-
+ 
 export async function dismissIndexingNotification(): Promise<void> {
   await Notifications.dismissNotificationAsync("indexing-progress");
 }

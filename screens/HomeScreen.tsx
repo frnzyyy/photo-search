@@ -1,5 +1,6 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system/legacy";
+import * as KeepAwake from "expo-keep-awake";
 import * as IntentLauncher from "expo-intent-launcher";
 import * as MediaLibrary from "expo-media-library";
 import * as Sharing from "expo-sharing";
@@ -13,13 +14,13 @@ import {
   Image,
   Modal,
   Pressable,
-  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   dismissIndexingNotification,
   requestNotificationPermission,
@@ -47,6 +48,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const FLOATING_BUTTON_SIZE = 54;
 const FLOATING_MENU_WIDTH = 240;
 const FLOATING_MENU_HEIGHT = 220;
+const KEEP_AWAKE_TAG = "photo-search-indexing";
 
 const FLOATING_MENU_BUTTONS = [
   {
@@ -75,6 +77,26 @@ const FLOATING_MENU_BUTTONS = [
     top: 104,
   },
 ];
+
+async function safeActivateKeepAwake() {
+  try {
+    const available = await KeepAwake.isAvailableAsync();
+
+    if (available) {
+      await KeepAwake.activateKeepAwakeAsync(KEEP_AWAKE_TAG);
+    }
+  } catch (error) {
+    console.warn("Keep awake could not be activated:", error);
+  }
+}
+
+async function safeDeactivateKeepAwake() {
+  try {
+    await KeepAwake.deactivateKeepAwake(KEEP_AWAKE_TAG);
+  } catch (error) {
+    console.warn("Keep awake could not be deactivated:", error);
+  }
+}
 
 export default function HomeScreen() {
   const [query, setQuery] = useState("");
@@ -129,6 +151,10 @@ export default function HomeScreen() {
     }
 
     setIndexedCount(getIndexedCount());
+
+    return () => {
+      void safeDeactivateKeepAwake();
+    };
   }, []);
 
   async function startIndexing() {
@@ -144,6 +170,7 @@ export default function HomeScreen() {
     indexingRef.current = true;
     setIndexing(true);
     setStatus("Loading photos...");
+    await safeActivateKeepAwake();
 
     let after: string | undefined = undefined;
     let hasMore = true;
@@ -152,42 +179,46 @@ export default function HomeScreen() {
 
     setIndexedCount(indexed);
 
-    while (hasMore) {
-      const batch = await MediaLibrary.getAssetsAsync({
-        mediaType: "photo",
-        first: 20,
-        after,
-      });
+    try {
+      while (hasMore) {
+        const batch = await MediaLibrary.getAssetsAsync({
+          mediaType: "photo",
+          first: 20,
+          after,
+        });
 
-      total += batch.assets.length;
-      setTotalCount(total);
-      hasMore = batch.hasNextPage;
-      after = batch.endCursor;
+        total += batch.assets.length;
+        setTotalCount(total);
+        hasMore = batch.hasNextPage;
+        after = batch.endCursor;
 
-      const unindexed = batch.assets.filter((a) => !isIndexed(a.uri));
+        const unindexed = batch.assets.filter((a) => !isIndexed(a.uri));
 
-      for (const asset of unindexed) {
-        try {
-          setStatus(`Indexing ${indexed + 1} of ${total}...`);
-          const assetInfo = await MediaLibrary.getAssetInfoAsync(asset);
-          const localUri = assetInfo.localUri ?? assetInfo.uri;
-          const { description, tags } = await getImageDescription(localUri);
-          savePhoto(asset.uri, asset.filename, description, tags);
-          indexed++;
-          setIndexedCount(indexed);
-          await showIndexingNotification(indexed, total);
-        } catch (e) {
-          console.log("Failed to index:", asset.filename, e);
-          savePhoto(asset.uri, asset.filename, "", []);
-          indexed++;
-          setIndexedCount(indexed);
+        for (const asset of unindexed) {
+          try {
+            setStatus(`Indexing ${indexed + 1} of ${total}...`);
+            const assetInfo = await MediaLibrary.getAssetInfoAsync(asset);
+            const localUri = assetInfo.localUri ?? assetInfo.uri;
+            const { description, tags } = await getImageDescription(localUri);
+            savePhoto(asset.uri, asset.filename, description, tags);
+            indexed++;
+            setIndexedCount(indexed);
+            await showIndexingNotification(indexed, total);
+          } catch (e) {
+            console.log("Failed to index:", asset.filename, e);
+            savePhoto(asset.uri, asset.filename, "", []);
+            indexed++;
+            setIndexedCount(indexed);
+          }
         }
       }
+    } finally {
+      indexingRef.current = false;
+      setIndexing(false);
+      await safeDeactivateKeepAwake();
+      await dismissIndexingNotification();
     }
 
-    indexingRef.current = false;
-    setIndexing(false);
-    await dismissIndexingNotification();
     setStatus(`Done! ${indexed} photos indexed.`);
   }
 
@@ -207,6 +238,19 @@ export default function HomeScreen() {
 
     setResults(allPhotos);
     setQuery("");
+
+    if (allPhotos.length === 0) {
+      setStatus("No indexed photos yet.");
+    } else {
+      setStatus(`Showing all ${allPhotos.length} indexed photo(s)`);
+    }
+  }
+
+  function clearSearch() {
+    const allPhotos = getAllPhotos();
+
+    setQuery("");
+    setResults(allPhotos);
 
     if (allPhotos.length === 0) {
       setStatus("No indexed photos yet.");
@@ -568,14 +612,28 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.searchRow}>
-        <TextInput
-          style={styles.input}
-          placeholder="Search: horse, receipt, sunset..."
-          placeholderTextColor="#62625B"
-          value={query}
-          onChangeText={setQuery}
-          onSubmitEditing={doSearch}
-        />
+        <View style={styles.searchInputWrap}>
+          <TextInput
+            style={styles.input}
+            placeholder="Search: horse, receipt, sunset..."
+            placeholderTextColor="#62625B"
+            value={query}
+            onChangeText={setQuery}
+            onSubmitEditing={doSearch}
+          />
+
+          {query.length > 0 && (
+            <TouchableOpacity
+              accessibilityLabel="Clear search"
+              accessibilityRole="button"
+              style={styles.clearSearchButton}
+              onPress={clearSearch}
+            >
+              <Feather name="x" size={20} color="#211922" />
+            </TouchableOpacity>
+          )}
+        </View>
+
         <TouchableOpacity style={styles.button} onPress={doSearch}>
           <Feather name="search" size={22} color="#FFFFFF" />
         </TouchableOpacity>
@@ -924,17 +982,32 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 10,
   },
-  input: {
+  searchInputWrap: {
     flex: 1,
-    height: 48,
+    height: 52,
+    flexDirection: "row",
+    alignItems: "center",
     borderWidth: 1,
     borderColor: "transparent",
     borderRadius: 999,
-    paddingHorizontal: 16,
     backgroundColor: "#EFEFEF",
+  },
+  input: {
+    flex: 1,
+    height: 52,
+    paddingLeft: 16,
+    paddingRight: 8,
+    backgroundColor: "transparent",
     color: "#000000",
     fontSize: 16,
     lineHeight: 22,
+  },
+  clearSearchButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: "center",
+    alignItems: "center",
   },
   button: {
     width: 52,

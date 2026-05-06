@@ -63,15 +63,70 @@ export function savePhoto(
   );
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getSearchVariants(term: string): string[] {
+  const variants = new Set<string>();
+
+  variants.add(term);
+
+  if (term.length > 2 && !term.endsWith("s")) {
+    variants.add(`${term}s`);
+  }
+
+  if (term.length > 3 && term.endsWith("s")) {
+    variants.add(term.slice(0, -1));
+  }
+
+  return Array.from(variants);
+}
+
+function matchesWholeWord(text: string, query: string): boolean {
+  const normalizedText = text.toLowerCase();
+  const normalizedQuery = query.trim().toLowerCase();
+
+  if (!normalizedQuery) {
+    return false;
+  }
+
+  const queryTerms = normalizedQuery.split(/\s+/).filter(Boolean);
+
+  return queryTerms.every((term) => {
+    const variants = getSearchVariants(term);
+
+    return variants.some((variant) => {
+      const pattern = new RegExp(
+        `(^|[^a-z0-9])${escapeRegExp(variant)}([^a-z0-9]|$)`,
+        "i",
+      );
+
+      return pattern.test(normalizedText);
+    });
+  });
+}
+
 export function searchPhotos(query: string): Photo[] {
-  const q = `%${query.toLowerCase()}%`;
-  return db.getAllSync<Photo>(
+  const normalizedQuery = query.trim().toLowerCase();
+
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  const q = `%${normalizedQuery}%`;
+  const candidates = db.getAllSync<Photo>(
     `SELECT * FROM photos 
      WHERE (LOWER(description) LIKE ? 
      OR LOWER(tags) LIKE ?)
      AND indexed = 1`,
     [q, q],
   );
+
+  return candidates.filter((photo) => {
+    const searchableText = `${photo.description} ${photo.tags}`;
+    return matchesWholeWord(searchableText, normalizedQuery);
+  });
 }
 
 export function getAllPhotos(): Photo[] {
