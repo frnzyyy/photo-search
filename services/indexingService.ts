@@ -23,7 +23,7 @@ export async function showIndexingNotification(
   await Notifications.scheduleNotificationAsync({
     identifier: "indexing-progress",
     content: {
-      title: "Photo Search",
+      title: "Seekr",
       body: `Indexing ${current} / ${total} photos`,
       data: { current, total },
       ...(Platform.OS === "android" && {

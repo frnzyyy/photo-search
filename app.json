@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "photo-search",
-    "slug": "photo-search",
+    "name": "Seekr",
+    "slug": "seekr",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "photosearch",
+    "scheme": "seekr",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -29,37 +29,45 @@
         "android.permission.READ_MEDIA_VIDEO",
         "android.permission.READ_MEDIA_AUDIO"
       ],
-      "package": "com.anonymous.photosearch"
+      "package": "com.franzxavier.seekr"
     },
-      "plugins": [
-    [
-      "expo-media-library",
-      {
-        "photosPermission": "Allow photo-search to access your photos.",
-        "savePhotosPermission": "Allow photo-search to save photos.",
-        "isAccessMediaLocationEnabled": true
-      }
-    ],
-    [
-      "expo-notifications",
-      {
-        "icon": "./assets/images/icon.png",
-        "color": "#378ADD"
-      }
-    ],
-    [
-      "expo-splash-screen",
-      {
-        "backgroundColor": "#FFFFFF",
-        "image": "./assets/images/splash-icon.png",
-        "imageWidth": 180,
-        "dark": {
-          "backgroundColor": "#111111",
-          "image": "./assets/images/splash-icon.png"
+    "plugins": [
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Seekr to access your photos.",
+          "savePhotosPermission": "Allow Seekr to save photos.",
+          "isAccessMediaLocationEnabled": true
         }
-      }
-    ]
-  ],
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#378ADD"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FFFFFF",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 180,
+          "dark": {
+            "backgroundColor": "#111111",
+            "image": "./assets/images/splash-icon.png"
+          }
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

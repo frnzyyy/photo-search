@@ -145,7 +145,24 @@ export default function HomeScreen() {
   const holdPreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const queryRef = useRef(query);
   const photoScaleAnim = useRef(new Animated.Value(1)).current;
+
+  function refreshVisiblePhotos(currentSearchQuery = queryRef.current) {
+    const trimmedQuery = currentSearchQuery.trim();
+
+    if (!trimmedQuery) {
+      setResults(getAllPhotos());
+      return;
+    }
+
+    setResults(searchPhotos(trimmedQuery));
+  }
+
+  function handleQueryChange(value: string) {
+    queryRef.current = value;
+    setQuery(value);
+  }
 
   useEffect(() => {
     initDatabase();
@@ -222,16 +239,19 @@ export default function HomeScreen() {
             savePhoto(asset.uri, asset.filename, description, tags);
             indexed++;
             setIndexedCount(indexed);
+            refreshVisiblePhotos();
             await showIndexingNotification(indexed, total);
           } catch (e) {
             console.log("Failed to index:", asset.filename, e);
             savePhoto(asset.uri, asset.filename, "", []);
             indexed++;
             setIndexedCount(indexed);
+            refreshVisiblePhotos();
           }
         }
       }
     } finally {
+      refreshVisiblePhotos();
       indexingRef.current = false;
       setIndexing(false);
       await safeDeactivateKeepAwake();
@@ -256,6 +276,7 @@ export default function HomeScreen() {
     const allPhotos = getAllPhotos();
 
     setResults(allPhotos);
+    queryRef.current = "";
     setQuery("");
 
     if (allPhotos.length === 0) {
@@ -268,6 +289,7 @@ export default function HomeScreen() {
   function clearSearch() {
     const allPhotos = getAllPhotos();
 
+    queryRef.current = "";
     setQuery("");
     setResults(allPhotos);
 
@@ -717,7 +739,7 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.headerBlock}>
         <View>
-          <Text style={styles.title}>Photo Search</Text>
+          <Text style={styles.title}>Seekr</Text>
           <Text style={styles.subtitle}>AI-powered gallery search</Text>
         </View>
 
@@ -738,7 +760,7 @@ export default function HomeScreen() {
             placeholder="Search: horse, receipt, sunset..."
             placeholderTextColor="#62625B"
             value={query}
-            onChangeText={setQuery}
+            onChangeText={handleQueryChange}
             onSubmitEditing={doSearch}
           />
 
