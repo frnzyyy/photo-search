@@ -27,40 +27,47 @@
         "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
         "android.permission.ACCESS_MEDIA_LOCATION",
         "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_AUDIO",
-        "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
-        "android.permission.POST_NOTIFICATIONS",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
-        "android.permission.ACCESS_MEDIA_LOCATION",
-        "android.permission.READ_MEDIA_VIDEO",
         "android.permission.READ_MEDIA_AUDIO"
       ],
       "package": "com.anonymous.photosearch"
     },
-    "plugins": [
-      [
-        "expo-media-library",
-        {
-          "photosPermission": "Allow photo-search to access your photos.",
-          "savePhotosPermission": "Allow photo-search to save photos.",
-          "isAccessMediaLocationEnabled": true
-        }
-      ],
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/images/icon.png",
-          "color": "#378ADD"
-        }
-      ]
+      "plugins": [
+    [
+      "expo-media-library",
+      {
+        "photosPermission": "Allow photo-search to access your photos.",
+        "savePhotosPermission": "Allow photo-search to save photos.",
+        "isAccessMediaLocationEnabled": true
+      }
     ],
+    [
+      "expo-notifications",
+      {
+        "icon": "./assets/images/icon.png",
+        "color": "#378ADD"
+      }
+    ],
+    [
+      "expo-splash-screen",
+      {
+        "backgroundColor": "#FFFFFF",
+        "image": "./assets/images/splash-icon.png",
+        "imageWidth": 180,
+        "dark": {
+          "backgroundColor": "#111111",
+          "image": "./assets/images/splash-icon.png"
+        }
+      }
+    ]
+  ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "195b1100-668f-4bf4-aa59-b6940d8b9b03"
+      }
     }
   }
 }
