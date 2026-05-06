@@ -48,6 +48,60 @@ export function initDatabase(): void {
       FOREIGN KEY(photo_id) REFERENCES photos(id)
     );
   `);
+
+  db.execSync(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+}
+
+const BACKEND_URL_SETTING_KEY = "backend_url";
+
+export function normalizeBackendUrl(url: string): string {
+  const trimmedUrl = url.trim().replace(/\/+$/, "");
+
+  if (!trimmedUrl) {
+    return "";
+  }
+
+  if (/^https?:\/\//i.test(trimmedUrl)) {
+    return trimmedUrl;
+  }
+
+  return `http://${trimmedUrl}`;
+}
+
+export function getAppSetting(key: string): string | null {
+  const result = db.getFirstSync<{ value: string }>(
+    `SELECT value FROM app_settings WHERE key = ?`,
+    [key],
+  );
+
+  return result?.value ?? null;
+}
+
+export function setAppSetting(key: string, value: string): void {
+  db.runSync(
+    `INSERT OR REPLACE INTO app_settings (key, value)
+     VALUES (?, ?)`,
+    [key, value],
+  );
+}
+
+export function getBackendUrl(): string | null {
+  return getAppSetting(BACKEND_URL_SETTING_KEY);
+}
+
+export function setBackendUrl(url: string): void {
+  const normalizedUrl = normalizeBackendUrl(url);
+
+  if (!normalizedUrl) {
+    throw new Error("Backend URL cannot be empty");
+  }
+
+  setAppSetting(BACKEND_URL_SETTING_KEY, normalizedUrl);
 }
 
 export function savePhoto(

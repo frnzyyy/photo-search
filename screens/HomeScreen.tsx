@@ -31,15 +31,18 @@ import {
   Collection,
   createCollection,
   getAllPhotos,
+  getBackendUrl,
   getCollections,
   getIndexedCount,
   initDatabase,
   isIndexed,
+  normalizeBackendUrl,
   Photo,
   savePhoto,
   searchPhotos,
+  setBackendUrl as saveBackendUrl,
 } from "../services/database";
-import { getImageDescription } from "../services/vlm";
+import { getImageDescription, testBackendConnection } from "../services/vlm";
 import PhotoViewer from "../components/PhotoViewer";
 import * as Haptics from "expo-haptics";
 
@@ -105,6 +108,11 @@ export default function HomeScreen() {
   const [indexedCount, setIndexedCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [status, setStatus] = useState("Ready!");
+  const [backendSetupChecked, setBackendSetupChecked] = useState(false);
+  const [backendConfigured, setBackendConfigured] = useState(false);
+  const [backendUrlInput, setBackendUrlInput] = useState("");
+  const [backendError, setBackendError] = useState("");
+  const [backendConnecting, setBackendConnecting] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedPhotoUris, setSelectedPhotoUris] = useState<Set<string>>(
@@ -143,6 +151,11 @@ export default function HomeScreen() {
     initDatabase();
     loadCollections();
 
+    const savedBackendUrl = getBackendUrl();
+    setBackendUrlInput(savedBackendUrl ?? "");
+    setBackendConfigured(!!savedBackendUrl);
+    setBackendSetupChecked(true);
+
     const allPhotos = getAllPhotos();
     setResults(allPhotos);
 
@@ -159,6 +172,12 @@ export default function HomeScreen() {
 
   async function startIndexing() {
     if (indexingRef.current) return;
+
+    if (!getBackendUrl()) {
+      setBackendConfigured(false);
+      setBackendError("Connect to your backend before indexing photos.");
+      return;
+    }
 
     const { status: permStatus } = await MediaLibrary.requestPermissionsAsync();
     if (permStatus !== "granted") {
@@ -256,6 +275,36 @@ export default function HomeScreen() {
       setStatus("No indexed photos yet.");
     } else {
       setStatus(`Showing all ${allPhotos.length} indexed photo(s)`);
+    }
+  }
+
+  function openBackendSetup() {
+    const savedBackendUrl = getBackendUrl();
+
+    setBackendUrlInput(savedBackendUrl ?? "");
+    setBackendError("");
+    setBackendConfigured(false);
+  }
+
+  async function handleConnectBackend() {
+    setBackendError("");
+    setBackendConnecting(true);
+
+    try {
+      const normalizedUrl = normalizeBackendUrl(backendUrlInput);
+      const connectedUrl = await testBackendConnection(normalizedUrl);
+
+      saveBackendUrl(connectedUrl);
+      setBackendUrlInput(connectedUrl);
+      setBackendConfigured(true);
+      setStatus("Backend connected.");
+    } catch (error) {
+      console.log("Backend connection error:", error);
+      setBackendError(
+        "Unable to connect. Make sure FastAPI and Ollama are running, and use your laptop URL like http://192.168.100.239:8000.",
+      );
+    } finally {
+      setBackendConnecting(false);
     }
   }
 
@@ -602,6 +651,68 @@ export default function HomeScreen() {
     animatePhotoScale(1);
   }
 
+  if (!backendSetupChecked) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.backendSetupScreen}>
+          <ActivityIndicator size="small" color="#E60023" />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!backendConfigured) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.backendSetupScreen}>
+          <View style={styles.backendSetupCard}>
+            <View style={styles.backendIconCircle}>
+              <Feather name="server" size={24} color="#E60023" />
+            </View>
+
+            <Text style={styles.backendTitle}>Connect to Backend</Text>
+            <Text style={styles.backendDescription}>
+              FastAPI and Ollama must be running on your laptop. Enter the
+              backend URL from your local network.
+            </Text>
+
+            <TextInput
+              style={styles.backendInput}
+              placeholder="http://192.168.100.239:8000"
+              placeholderTextColor="#62625B"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              value={backendUrlInput}
+              onChangeText={setBackendUrlInput}
+              onSubmitEditing={handleConnectBackend}
+            />
+
+            {backendError.length > 0 && (
+              <Text style={styles.backendError}>{backendError}</Text>
+            )}
+
+            <TouchableOpacity
+              activeOpacity={0.86}
+              disabled={backendConnecting}
+              style={[
+                styles.backendConnectButton,
+                backendConnecting && styles.disabledButton,
+              ]}
+              onPress={handleConnectBackend}
+            >
+              {backendConnecting ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.backendConnectText}>Connect</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.headerBlock}>
@@ -609,6 +720,15 @@ export default function HomeScreen() {
           <Text style={styles.title}>Photo Search</Text>
           <Text style={styles.subtitle}>AI-powered gallery search</Text>
         </View>
+
+        <TouchableOpacity
+          activeOpacity={0.78}
+          style={styles.backendButton}
+          onPress={openBackendSetup}
+        >
+          <Feather name="server" size={16} color="#211922" />
+          <Text style={styles.backendButtonText}>Backend</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.searchRow}>
@@ -960,6 +1080,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
   },
   headerBlock: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
     marginBottom: 18,
     paddingTop: 4,
   },
@@ -975,6 +1099,95 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: "#62625B",
     fontWeight: "500",
+  },
+  backendButton: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: "#E5E5E0",
+  },
+  backendButtonText: {
+    color: "#211922",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
+  backendSetupScreen: {
+    flex: 1,
+    justifyContent: "center",
+    paddingBottom: 40,
+  },
+  backendSetupCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "#E5E5E0",
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 3,
+  },
+  backendIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "rgba(230, 0, 35, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  backendTitle: {
+    fontSize: 26,
+    lineHeight: 32,
+    fontWeight: "800",
+    color: "#211922",
+  },
+  backendDescription: {
+    marginTop: 8,
+    marginBottom: 18,
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#62625B",
+  },
+  backendInput: {
+    minHeight: 52,
+    borderWidth: 1,
+    borderColor: "#919190",
+    borderRadius: 16,
+    paddingHorizontal: 15,
+    backgroundColor: "#FFFFFF",
+    color: "#000000",
+    fontSize: 16,
+    lineHeight: 22,
+  },
+  backendError: {
+    marginTop: 10,
+    color: "#DD0E0E",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  backendConnectButton: {
+    minHeight: 52,
+    marginTop: 16,
+    borderRadius: 16,
+    backgroundColor: "#E60023",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  backendConnectText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  disabledButton: {
+    opacity: 0.65,
   },
   searchRow: {
     flexDirection: "row",
